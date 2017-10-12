@@ -8,7 +8,7 @@ import itertools
 
 import numpy as np
 from scipy import linalg
-from scipy.stats import multivariate_normal
+from scipy.stats import multivariate_normal, normaltest
 from sklearn import mixture
 from sklearn.datasets import load_iris
 get_ipython().magic(u'matplotlib inline')
@@ -19,7 +19,7 @@ import time
 np.seterr(divide='ignore', invalid='ignore')
 
 
-# In[91]:
+# In[12]:
 
 class StopWatch:
     def __init__(self):
@@ -41,6 +41,7 @@ class MyModel:
         self.n_gauss = n_gauss
         self.data = None
         self.data_size = data_size
+        self.watches = {}
         
     def load_data(self, dataset='iris'):
         if dataset == 'iris':
@@ -49,12 +50,22 @@ class MyModel:
             self.data = load_iris(return_X_y=True)
             aux = np.array([[i] for i in self.data[1]])
             self.data = np.append(self.data[0], aux, axis=1)
-        elif dataset == 'tpc-h':
+        elif dataset == 'tpc-h-5k':
             self.data = np.delete(np.genfromtxt('sampled_items.csv', delimiter='|'), 2, 1)
+        elif dataset == 'tpc-h-full':
+            self.data = np.delete(np.genfromtxt('sampled_items_full.csv', delimiter='|'), 2, 1)
         
         if self.data is not None:
             self.n = self.data.shape[0]
             self.m = self.data.shape[1]
+    
+    def test_normality(self, column):
+        z, pval = normaltest(self.data[:, column])
+        print z, pval
+        if(pval < 0.055):
+            print "Not normal distribution"
+        else:
+            print "Normaaaaal!"
         
     def train(self, show=False):
         if self.data is None:
@@ -129,27 +140,27 @@ class MyModel:
         den = sum([self.pi[pos]*pdfs[pos] for pos in range(self.n_gauss)])
         return [self.pi[k]*pdfs[k] / den for k in range(self.n_gauss)]
     
-    def run(self):
+    def run(self, prefix=''):
         self.reset_values()
         self.mub_helper = self.get_mub_helper()
         
-        self.total_watch = StopWatch()
-        self.pred_watch = StopWatch()
-        self.aux_watch = StopWatch()
+        self.watches['total_watch'] = StopWatch()
+        self.watches['pred_watch'] = StopWatch()
+        self.watches['mub_watch'] = StopWatch()
 
-        self.total_watch.start()
+        self.watches['total_watch'].start()
         for i in range(self.n):
             if i%(self.n//100) == 0 or i == self.n-1:
                 print '\r',
-                print i,
+                print '{} {} / {}'.format(prefix, i+1, self.n),
 
             nRem = 0
 
             #--------------------------------------------------------- 
             # First bottleneck
-            self.aux_watch.start()
+            self.watches['mub_watch'].start()
             mub = self.get_mub(i)
-            self.aux_watch.stop()
+            self.watches['mub_watch'].stop()
             #--------------------------------------------------------- 
 
             while(True):
@@ -167,9 +178,9 @@ class MyModel:
 
                 #--------------------------------------------------------- 
                 # Second bottleneck
-                self.pred_watch.start()
+                self.watches['pred_watch'].start()
                 t = self.get_t(i, rangeJ, tup_rangeJ)
-                self.pred_watch.stop()
+                self.watches['pred_watch'].stop()
                 #---------------------------------------------------------
                 self.xb[i] = [sum([t[k]*mub[k, j] for k in range(self.n_gauss)]) for j in range(self.m)]
                 
@@ -203,77 +214,83 @@ class MyModel:
 
             self.compact[i] = self.minDifIdxs[i]
 
-        self.total_watch.stop()
+        self.watches['total_watch'].stop()
         
         original_space = self.m*self.n*self.data_size
         data_space = (self.m * self.n - self.totalRems) * self.data_size + self.totalRems
         final_space = data_space + (self.m * self.n_gauss * (self.m + 1) + self.n_gauss) * self.data_size
         
-        self.relative_data_space = data_space/original_space * 100
-        self.relative_final_space = final_space/original_space * 100
+        self.compression = (1-data_space/original_space) * 100
+        self.raw_compression = (1-final_space/original_space) * 100
         
     def print_statistics(self):
         print '\n----------------------------------------------'
         print '\nTotal rems: {}'.format(self.totalRems)
-        print 'Rem percentage: {:.2f}%'.format(self.totalRems/(self.n*self.m) * 100)
+        print '\nRem percentage: {:.2f}%'.format(self.totalRems/(self.n*self.m) * 100)
         print '\n----------------------------------------------'
     
     def print_times(self):
         print '\n----------------------------------------------'
-        print 'Total time: {:.2f}s'.format(self.total_watch.time)
-        print 'Prediction time: {:.2f}s'.format(self.pred_watch.time)
-        print 'Prediction time percentage: {:.2f}%'.format(self.pred_watch.time/self.total_watch.time * 100)
-        print 'Aux time: {:.2f}s'.format(self.aux_watch.time)
-        print 'Aux time percentage: {:.2f}%'.format(self.aux_watch.time/self.total_watch.time * 100)
+        print 'Total time: {:.2f}s'.format(self.watches['total_watch'].time)
+        for watch in [w for w in self.watches if w != 'total_watch']:
+            print '{} time: {:.2f}s'.format(watch, self.watches[watch].time)
+            print '{} time percentage: {:.2f}%'.format(watch, self.watches[watch].time/self.watches['total_watch'].time * 100)
         print '----------------------------------------------'
         
     def print_final_space(self):
         print '\n----------------------------------------------'
-        print 'Percentage relative to original: {:.2f}%'.format(self.relative_final_space)
-        print 'Percentage without the matrices: {:.2f}%'.format(self.relative_data_space)
+        print 'Compression: {:.2f}%'.format(self.compression)
+        print 'Compression without the matrices: {:.2f}%'.format(self.raw_compression)
         print '\n----------------------------------------------'
 
 
-# In[92]:
+# In[17]:
 
-model = MyModel(n_gauss=30, err=0.01)
+#model = MyModel(n_gauss=3, err=0.05)
 #model.load_data('iris_complete')
 #model.load_data('iris')
-model.load_data('tpc-h')
+#model.load_data('tpc-h-5k')
+#model.load_data('tpc-h-full')
 
-model.train()
 
-model.run()
+# In[18]:
 
-model.print_times()
+#model.train()
+
+#model.run()
+
+#model.print_times()
 
 #model.print_statistics()
 
 #model.print_final_space()
 
 
-# In[93]:
+# In[31]:
 
-def plot_gauss(n, dataset, e):
+#model.test_normality(2)
+
+
+# In[61]:
+
+def plot_gauss(n, repeat, dataset, e):
     x = [i+1 for i in range(n)]
     y = []
     for i in x:
         model = MyModel(n_gauss=i, err=e)
         model.load_data(dataset)
-        #model.load_data('iris')
-        #model.load_data('tpc-h')
-
-        model.train()
-        model.run()
-        y.append(model.relative_final_space)
+        mean = 0
+        for j in range(repeat):
+            model.train()
+            model.run(prefix='{} - '.format(i))
+            mean += model.relative_final_space
+        y.append(mean/repeat)
     
     plt.plot(x, y)
     plt.show()
 
-plot_gauss(20, 'tpc-h', 0.01)
+plot_gauss(10, 5, 'tpc-h-5k', e=0.01)
         
-
-
 # In[ ]:
 
 
