@@ -8,9 +8,7 @@ import itertools
 import numpy as np
 from scipy import linalg
 from scipy.stats import multivariate_normal, normaltest
-from sklearn import mixture
 from sklearn.datasets import load_iris
-# get_ipython().magic(u'matplotlib inline')
 import matplotlib as mpl
 
 mpl.use('Agg')
@@ -47,13 +45,6 @@ def assistParRun(*arg, **kwarg):
 
         nRem = 0
 
-        # ---------------------------------------------------------
-        # First bottleneck
-        # self.watches['mub_watch'].start()
-        mub = self.get_mub(i)
-        # self.watches['mub_watch'].stop()
-        # ---------------------------------------------------------
-
         totalRems = 0
         minDifs = np.zeros(self.m)
         minDifIdxs = -np.ones(self.m)
@@ -61,23 +52,8 @@ def assistParRun(*arg, **kwarg):
         while (True):
 
             rangeJ = np.array([j for j in range(self.m) if j not in minDifIdxs])
-            tup_rangeJ = tuple(rangeJ)
 
-            # ---------------------------------------------------------
-            if tup_rangeJ not in self.mvns:
-                r_mu = [self.mu[k, rangeJ] for k in range(self.n_gauss)]
-                r_sigma = [np.take(self.sigma[k, rangeJ], rangeJ, axis=1) for k in range(self.n_gauss)]
-
-                self.mvns[tup_rangeJ] = [multivariate_normal(mean, cov) for mean, cov in zip(r_mu, r_sigma)]
-            # ---------------------------------------------------------
-
-            # ---------------------------------------------------------
-            # Second bottleneck
-            # self.watches['pred_watch'].start()
-            t = self.get_t(i, rangeJ, tup_rangeJ)
-            # self.watches['pred_watch'].stop()
-            # ---------------------------------------------------------
-            xb = [sum([t[k] * mub[k, j] for k in range(self.n_gauss)]) for j in range(self.m)]
+            xb = predict()
             # try:
             #     self.xb[i] = copy.copy(xb2)
             # except Exception:
@@ -147,17 +123,7 @@ class MyModel:
             print("Normaaaaal!")
 
     def train(self, show=False):
-        if self.data is None:
-            print('No data!')
-            return
-        self.gmm = mixture.GaussianMixture(n_components=self.n_gauss, max_iter=500).fit(self.data)
-        self.mu = self.gmm.means_
-        self.sigma = self.gmm.covariances_
-        self.pi = self.gmm.weights_
-        self.load_sigma_dots()
         self.anti_j = [np.arange(self.m) != j for j in range(self.m)]
-        if show:
-            print(self.gmm)
 
     def get_err_vec(self, data, completeRangeJ):
         return np.abs((completeRangeJ - data) / data)
