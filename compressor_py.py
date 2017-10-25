@@ -40,7 +40,7 @@ class StopWatch:
 
 
 def assistParRun(*arg, **kwarg):
-        self, i, prefix = arg
+        self, i, data, prefix = arg
         # i = idx
         if i % (self.n // 100) == 0 or i == self.n - 1:
             print('{} {} / {}'.format(prefix, i + 1, self.n),end='\r')
@@ -50,7 +50,7 @@ def assistParRun(*arg, **kwarg):
         # ---------------------------------------------------------
         # First bottleneck
         # self.watches['mub_watch'].start()
-        mub = self.get_mub(i)
+        mub = self.get_mub(data)
         # self.watches['mub_watch'].stop()
         # ---------------------------------------------------------
 
@@ -85,13 +85,13 @@ def assistParRun(*arg, **kwarg):
 
             # self.xb[i] = [sum([t[k]*mub[k, j] for k in range(self.n_gauss)]) for j in range(self.m)]
 
-            erros = self.get_err_vec(self.data[i], xb)
+            erros = self.get_err_vec(data, xb)
 
             for j in range(self.m):
                 if j not in rangeJ:
                     xb[j] = np.inf
 
-            minDif, minDifIndex = self.find_min(self.data[i], xb)
+            minDif, minDifIndex = self.find_min(data, xb)
             # print minDif, minDifIndex
 
             if minDif > self.err:
@@ -204,11 +204,11 @@ class MyModel:
              for j in range(self.m)]
             for k in range(self.n_gauss)])
 
-    def get_mub(self, i):
+    def get_mub(self, data):
         return np.array([
             [self.mub_helper[k, j] + \
              np.dot(
-                 self.sigma_dots[k, j], self.data[i, self.anti_j[j]]
+                 self.sigma_dots[k, j], data[self.anti_j[j]]
              )
              for j in range(self.m)]
             for k in range(self.n_gauss)])
@@ -312,7 +312,7 @@ class MyModel:
         # self.watches['mub_watch'] = StopWatch()
 
         # self.watches['total_watch'].start()
-        v = Parallel(n_jobs=6)(delayed(assistParRun)(self, idx, prefix) for idx in range(self.n))
+        v = Parallel(n_jobs=6)(delayed(assistParRun)(self, idx, self.data[idx], prefix) for idx in range(self.n))
         self.compact, self.totalErrs, totalRems = list(zip(*v))
         self.totalRems = sum(totalRems)
         # for i in range(len(v)):
