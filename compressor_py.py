@@ -400,7 +400,7 @@ def plot_gauss(n0, n1, nStep, nRepeat, dataset, e):
 
 
 # plot_gauss(1, 3, 1, 1, 'iris', e=0.01)
-plot_gauss(1, 40, 1, 5, 'tpc-h-5k', e=0.01)
+plot_gauss(1, 40, 10, 2, 'tpc-h-5k', e=0.01)
 
 # In[ ]:
 
