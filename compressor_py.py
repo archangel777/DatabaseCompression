@@ -17,7 +17,17 @@ mpl.use('Agg')
 import matplotlib.pyplot as plt
 import copy
 import time
-from joblib import Parallel, delayed
+# from joblib import Parallel, delayed
+
+import findspark
+findspark.init()
+
+from pyspark import SparkConf, SparkContext
+conf = (SparkConf()
+        .setMaster("local[*]")
+        .setAppName("Teste")
+        .set("spark.executor.memory", "2g"))
+sc = SparkContext(conf = conf)
 
 np.seterr(divide='ignore', invalid='ignore')
 
@@ -40,8 +50,9 @@ class StopWatch:
 
 
 def assistParRun(*arg, **kwarg):
-        self, i, data, prefix = arg
-        # i = idx
+        self, data_tup, prefix = arg
+        data = data_tup[1]
+        i = data_tup[0]
         if i % (self.n // 100) == 0 or i == self.n - 1:
             print('{} {} / {}'.format(prefix, i + 1, self.n),end='\r')
 
@@ -312,7 +323,8 @@ class MyModel:
         # self.watches['mub_watch'] = StopWatch()
 
         # self.watches['total_watch'].start()
-        v = Parallel(n_jobs=6)(delayed(assistParRun)(self, idx, self.data[idx], prefix) for idx in range(self.n))
+        v = sc.parallelize(list(enumerate(self.data))).map(lambda d: assistParRun(self,d,prefix)).collect()
+        # v = Parallel(n_jobs=6)(delayed(assistParRun)(self, idx, self.data[idx], prefix) for idx in range(self.n))
         self.compact, self.totalErrs, totalRems = list(zip(*v))
         self.totalRems = sum(totalRems)
         # for i in range(len(v)):
