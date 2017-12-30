@@ -49,82 +49,6 @@ class StopWatch:
         self.time += time.time() - self.start_time
 
 
-def assistParRun(*arg, **kwarg):
-        self, data_tup, prefix = arg
-        data = data_tup[1]
-        i = data_tup[0]
-        if i % (self.n // 100) == 0 or i == self.n - 1:
-            print('{} {} / {}'.format(prefix, i + 1, self.n),end='\r')
-
-        nRem = 0
-
-        # ---------------------------------------------------------
-        # First bottleneck
-        # self.watches['mub_watch'].start()
-        mub = self.get_mub(data)
-        # self.watches['mub_watch'].stop()
-        # ---------------------------------------------------------
-
-        totalRems = 0
-        minDifs = np.zeros(self.m)
-        minDifIdxs = -np.ones(self.m)
-
-        while (True):
-
-            rangeJ = np.array([j for j in range(self.m) if j not in minDifIdxs])
-            tup_rangeJ = tuple(rangeJ)
-
-            # ---------------------------------------------------------
-            if tup_rangeJ not in self.mvns:
-                r_mu = [self.mu[k, rangeJ] for k in range(self.n_gauss)]
-                r_sigma = [np.take(self.sigma[k, rangeJ], rangeJ, axis=1) for k in range(self.n_gauss)]
-
-                self.mvns[tup_rangeJ] = [multivariate_normal(mean, cov) for mean, cov in zip(r_mu, r_sigma)]
-            # ---------------------------------------------------------
-
-            # ---------------------------------------------------------
-            # Second bottleneck
-            # self.watches['pred_watch'].start()
-            t = self.get_t(i, rangeJ, tup_rangeJ)
-            # self.watches['pred_watch'].stop()
-            # ---------------------------------------------------------
-            xb = [sum([t[k] * mub[k, j] for k in range(self.n_gauss)]) for j in range(self.m)]
-            # try:
-            #     self.xb[i] = copy.copy(xb2)
-            # except Exception:
-            #     print("Error")
-
-            # self.xb[i] = [sum([t[k]*mub[k, j] for k in range(self.n_gauss)]) for j in range(self.m)]
-
-            erros = self.get_err_vec(data, xb)
-
-            for j in range(self.m):
-                if j not in rangeJ:
-                    xb[j] = np.inf
-
-            minDif, minDifIndex = self.find_min(data, xb)
-            # print minDif, minDifIndex
-
-            if minDif > self.err:
-                break
-
-            isErr = False
-            for j2 in minDifIdxs[minDifIdxs != -1]:
-                if erros[j2] > self.err:
-                    isErr = True
-
-            if nRem + 1 >= self.m or isErr:
-                break
-
-            minDifs[nRem] = minDif
-            # self.minDifIdxs[i, nRem] = minDifIndex
-
-            nRem += 1
-
-            totalRems += 1
-
-        return minDifIdxs, minDifs, totalRems
-
 class MyModel:
     def __init__(self, n_gauss=5, err=0.01, data_size=64):
         self.err = err
@@ -230,109 +154,62 @@ class MyModel:
         den = sum([self.pi[pos] * pdfs[pos] for pos in range(self.n_gauss)])
         return [self.pi[k] * pdfs[k] / den for k in range(self.n_gauss)]
 
-    def run(self, prefix=''):
-        self.reset_values()
-        self.mub_helper = self.get_mub_helper()
+    def predict_all(self, X):
+        rangeJ = np.argwhere(X != None).flatten()
+        tup_rangeJ = tuple(rangeJ)
 
-        # self.watches['total_watch'] = StopWatch()
-        # self.watches['pred_watch'] = StopWatch()
-        # self.watches['mub_watch'] = StopWatch()
+        # ---------------------------------------------------------
+        if tup_rangeJ not in self.mvns:
+            r_mu = [self.mu[k, rangeJ] for k in range(self.n_gauss)]
+            r_sigma = [np.take(self.sigma[k, rangeJ], rangeJ, axis=1) for k in range(self.n_gauss)]
 
-        # self.watches['total_watch'].start()
-        for i in range(self.n):
-            if i % (self.n // 100) == 0 or i == self.n - 1:
-                print('\r')
-                print('{} {} / {}'.format(prefix, i + 1, self.n))
+            self.mvns[tup_rangeJ] = [multivariate_normal(mean, cov) for mean, cov in zip(r_mu, r_sigma)]
+        # ---------------------------------------------------------
 
-            nRem = 0
+        t = self.get_t(i, rangeJ, tup_rangeJ)
 
-            # ---------------------------------------------------------
-            # First bottleneck
-            # self.watches['mub_watch'].start()
-            mub = self.get_mub(i)
-            # self.watches['mub_watch'].stop()
-            # ---------------------------------------------------------
+        return [sum([t[k] * mub[k, j] for k in range(self.n_gauss)]) for j in range(self.m)]
 
-            while (True):
+    def try_to_remove(self, X, data, mub):
+        if all(X == None): return X
 
-                rangeJ = np.array([j for j in range(self.m) if j not in self.minDifIdxs[i]])
-                tup_rangeJ = tuple(rangeJ)
+        predictions = self.predict_all(X)
 
-                # ---------------------------------------------------------
-                if tup_rangeJ not in self.mvns:
-                    r_mu = [self.mu[k, rangeJ] for k in range(self.n_gauss)]
-                    r_sigma = [np.take(self.sigma[k, rangeJ], rangeJ, axis=1) for k in range(self.n_gauss)]
+        errs = self.get_err_vec(X, predictions)
 
-                    self.mvns[tup_rangeJ] = [multivariate_normal(mean, cov) for mean, cov in zip(r_mu, r_sigma)]
-                # ---------------------------------------------------------
+        for j in np.argwhere(X == None).flatten():
+            predictions[j] = np.inf
 
-                # ---------------------------------------------------------
-                # Second bottleneck
-                # self.watches['pred_watch'].start()
-                t = self.get_t(i, rangeJ, tup_rangeJ)
-                # self.watches['pred_watch'].stop()
-                # ---------------------------------------------------------
-                self.xb[i] = [sum([t[k] * mub[k, j] for k in range(self.n_gauss)]) for j in range(self.m)]
+        minErr, minErrIndex = self.find_min(data, predictions)
+        # print minDif, minDifIndex
+        if minErr > self.err or any(errs[np.argwhere(X == None).flatten()] > self.err):
+            return X
 
-                erros = self.get_err_vec(self.data[i], self.xb[i])
+        X[minErrIndex] = None
 
-                completeRangeJ = self.xb[i]
-                for j in range(self.m):
-                    if j not in rangeJ:
-                        completeRangeJ[j] = np.inf
+        return self.try_to_remove(X, data, mub)
 
-                minDif, minDifIndex = self.find_min(self.data[i], completeRangeJ)
-                # print minDif, minDifIndex
-                if minDif > self.err:
-                    break
+    def assistParRun(self, data_tup):
+        i, data = data_tup
 
-                isErr = False
-                for j2 in [j for j in self.minDifIdxs[i] if j != -1]:
-                    if erros[j2] > self.err:
-                        isErr = True
+        mub = self.get_mub(data)
 
-                if nRem + 1 >= self.m or isErr:
-                    break
-
-                self.minDifs[i, nRem] = minDif
-                self.minDifIdxs[i, nRem] = minDifIndex
-
-                nRem += 1
-
-                self.totalErrs[i] = self.minDifs[i]
-                self.totalRems += 1
-
-            return minDifIdxs
-
-        # self.watches['total_watch'].stop()
-
-        original_space = self.m * self.n * self.data_size
-        data_space = (self.m * self.n - self.totalRems) * self.data_size + self.totalRems
-        final_space = data_space + (self.m * self.n_gauss * (self.m + 1) + self.n_gauss) * self.data_size
-
-        self.compression = (1 - data_space / original_space) * 100
-        self.raw_compression = (1 - final_space / original_space) * 100
-
+        X = np.copy(data)
+        return self.try_to_remove(X, data, mub)
 
     def parRun(self, prefix=''):
         self.reset_values()
         self.mub_helper = self.get_mub_helper()
 
-        # self.watches['total_watch'] = StopWatch()
-        # self.watches['pred_watch'] = StopWatch()
-        # self.watches['mub_watch'] = StopWatch()
-
         # self.watches['total_watch'].start()
-        v = sc.parallelize(list(enumerate(self.data))).map(lambda d: assistParRun(self,d,prefix)).collect()
-        # v = Parallel(n_jobs=6)(delayed(assistParRun)(self, idx, self.data[idx], prefix) for idx in range(self.n))
-        self.compact, self.totalErrs, totalRems = list(zip(*v))
-        self.totalRems = sum(totalRems)
-        # for i in range(len(v)):
-        #     minDifIdxs, minDifs = v[i]
-        #     self.compact[i] = minDifIdxs
-        #     self.totalErrs[i] = minDifs
+        self.totalRems = sc \
+                .parallelize(list(enumerate(self.data))) \
+                .map(lambda d: self.assistParRun(d)) \
+                .map(lambda d: sum(d == None)) \
+                .reduce(lambda x1, x2: x1 + x2) \
+                .collect()
 
-        # self.watches['total_watch'].stop()
+        # v = Parallel(n_jobs=6)(delayed(assistParRun)(self, idx, self.data[idx], prefix) for idx in range(self.n))
 
         original_space = self.m * self.n * self.data_size
         data_space = (self.m * self.n - self.totalRems) * self.data_size + self.totalRems
